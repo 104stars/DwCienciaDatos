@@ -1,0 +1,115 @@
+Table Dim_Fecha {
+  Fecha_Key int [pk, increment, note: 'Clave subrogada diaria']
+  Fecha_Completa date [not null, unique, note: 'Fecha en formato YYYY-MM-DD']
+  Ano int [not null]
+  Trimestre int [not null, note: '1-4']
+  Numero_Mes int [not null, note: '1-12']
+  Nombre_Mes varchar(20) [not null, note: 'Ej: Enero, Febrero']
+  Numero_Dia_Mes int [not null, note: '1-31']
+  Numero_Dia_Semana int [not null, note: '1 (Lunes) - 7 (Domingo)']
+  Nombre_Dia_Semana varchar(15) [not null, note: 'Ej: Lunes, Martes']
+  Es_Fin_Semana boolean [not null, note: 'True si es Sábado o Domingo']
+  note: 'Dimensión de Fecha con granularidad diaria.'
+}
+
+Table Dim_Hora {
+  Hora_Key int [pk, increment, note: 'Clave subrogada para la hora/minuto del día']
+  Hora_Completa time [not null, note: 'Formato HH:MM:SS o HH:MM']
+  Hora_Del_Dia int [not null, note: '0-23']
+  Minuto_De_La_Hora int [not null, note: '0-59']
+  Franja_Horaria varchar(15) [not null, note: 'Ej: Madrugada (0-5), Mañana (6-11), Tarde (12-17), Noche (18-23)']
+  note: 'Dimensión de Hora con granularidad de minuto.'
+}
+
+Table Dim_Cliente {
+  Cliente_Key int [pk, increment, note: 'Clave subrogada del cliente']
+  Cliente_ID_Operacional varchar(50) [not null, note: 'ID del cliente en el sistema operacional (NK)']
+  Nombre_Cliente varchar(255) [not null]
+  Industria_Cliente varchar(100)
+  // ... Atributos SCD Tipo 2 ...
+  note: 'Describe a los clientes. Implementar SCD Tipo 2.'
+}
+
+Table Dim_Geografia {
+  Geografia_Key int [pk, increment, note: 'Clave subrogada geográfica']
+  Ciudad varchar(20) [not null]
+  Departamento varchar(20)
+  Pais varchar(20) [not null, default: 'Colombia']
+  Zona_Geografica varchar(20) [note: 'Ej: Norte, Sur, Centro']
+  note: 'Describe ubicaciones geográficas.'
+}
+
+Table Dim_Sede {
+  Sede_Key int [pk, increment, note: 'Clave subrogada de la sede']
+  Sede_ID_Operacional varchar(50) [note: 'ID de la sede en el sistema operacional (NK)']
+  Cliente_Key int [ref: > Dim_Cliente.Cliente_Key, not null]
+  Direccion_Sede varchar(500) [not null]
+  Geografia_Key int [ref: > Dim_Geografia.Geografia_Key, not null]
+  // ... Atributos SCD Tipo 2 ...
+  note: 'Describe las sedes físicas de los clientes.'
+}
+
+Table Dim_Mensajero {
+  Mensajero_Key int [pk, increment, note: 'Clave subrogada del mensajero']
+  Mensajero_ID_Operacional varchar(50) [not null, note: 'ID del mensajero en el sistema operacional (NK)']
+  Nombre_Mensajero varchar(100) [not null]
+  Tipo_Vehiculo varchar(25) [note: 'Ej: Moto, Bicicleta']
+  // ... Atributos SCD Tipo 2 ...
+  note: 'Describe a los mensajeros.'
+}
+
+// --- REFINAMIENTO DE NOMBRE ---
+Table Dim_Urgencia_Servicio {
+  Urgencia_Servicio_Key int [pk, increment, note: 'Clave subrogada del nivel de urgencia del servicio']
+  Descripcion_Urgencia varchar(100) [unique, not null, note: 'Ej: Urgente (<1 hora), Normal (2-3 horas), Fin del Día']
+  Categoria_Urgencia varchar(10) [not null, note: 'Ej: Alta, Media, Baja']
+  note: 'Describe la urgencia o nivel de servicio solicitado. (Anteriormente Dim_Tipo_Servicio)'
+}
+
+Table Dim_Estado_Servicio {
+  Estado_Servicio_Key int [pk, increment, note: 'Clave subrogada del estado del servicio']
+  Nombre_Estado varchar(20) [unique, not null, note: 'Ej: Iniciado, Con mensajero asignado, Recogido en origen, Entregado en Destino, Cerrado']
+  Orden_Estado int [not null, note: 'Secuencia del estado en el flujo ideal (1, 2, 3, 4, 5)']
+  note: 'Cataloga los posibles estados por los que pasa un servicio.'
+}
+
+Table Dim_Novedad {
+  Novedad_Key int [pk, increment, note: 'Clave subrogada del tipo de novedad']
+  Descripcion_Novedad varchar(255) [unique, not null, note: 'Ej: Daño Vehículo, Cliente Ausente, Tráfico Alto, Sin Novedad']
+  Categoria_Novedad varchar(50) [not null, note: 'Ej: Operativa Mensajero, Cliente, Externa, Ninguna']
+  note: 'Cataloga los tipos de incidentes. Debe incluir un registro para "Sin Novedad" (Key = 0 o -1).'
+}
+
+// --- Tabla de Hechos ---
+
+Table Fact_Cambio_Estado_Servicio {
+  Servicio_Estado_Key bigint [pk, increment, note: 'Clave subrogada del evento de estado']
+
+  // Claves Foráneas (FKs) a Dimensiones
+  Fecha_Key int [ref: > Dim_Fecha.Fecha_Key, not null]
+  Hora_Key int [ref: > Dim_Hora.Hora_Key, not null]
+  Cliente_Key int [ref: > Dim_Cliente.Cliente_Key, not null]
+  Sede_Origen_Key int [ref: > Dim_Sede.Sede_Key, not null]
+  Geografia_Destino_Key int [ref: > Dim_Geografia.Geografia_Key, not null]
+  Mensajero_Key int [ref: > Dim_Mensajero.Mensajero_Key, null, note: 'NULL si estado es "Iniciado"']
+  Estado_Servicio_Key int [ref: > Dim_Estado_Servicio.Estado_Servicio_Key, not null]
+  Urgencia_Servicio_Key int [ref: > Dim_Urgencia_Servicio.Urgencia_Servicio_Key, not null]
+  Novedad_Key int [ref: > Dim_Novedad.Novedad_Key, not null, note: 'FK a "Sin Novedad" si no hubo']
+
+  // Dimensiones Degeneradas
+  Servicio_ID_Operacional varchar(50) [not null, note: 'Agrupa los estados del mismo servicio.']
+  Direccion_Destino varchar(100) [not null, note: 'Dirección específica de entrega']
+
+  // Timestamps y Medidas
+  Timestamp_Estado timestamp [not null, note: 'Fecha y hora exacta del estado']
+  Contador_Estados int [not null, default: 1, note: 'Siempre 1 para contar transiciones']
+  
+  note: 'Tabla de hechos transaccional. Granularidad: Un registro por cada cambio de estado de un servicio.'
+  indexes {
+    (Servicio_ID_Operacional, Timestamp_Estado)
+    (Fecha_Key)
+    (Cliente_Key)
+    (Mensajero_Key)
+    (Estado_Servicio_Key)
+  }
+}
