@@ -42,6 +42,7 @@ Table Dim_Geografia {
 Table Dim_Sede {
   Sede_Key int [pk, increment, note: 'Clave subrogada de la sede']
   Sede_ID_Operacional varchar(50) [note: 'ID de la sede en el sistema operacional (NK)']
+  Nombre_Sede varchar(120) [note: 'Nombre descriptivo de la sede']
   Cliente_Key int [ref: > Dim_Cliente.Cliente_Key, not null]
   Direccion_Sede varchar(500) [not null]
   Geografia_Key int [ref: > Dim_Geografia.Geografia_Key, not null]
