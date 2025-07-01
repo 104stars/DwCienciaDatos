@@ -25,7 +25,6 @@ def transform_geografia(df):
     """
     # Asignar valores por defecto según el schema.dbml
     df['Pais'] = 'Colombia'
-    df['Zona_Geografica'] = None  # No hay fuente directa en el OLTP
 
     # Generar la clave subrogada
     df.insert(0, 'Geografia_Key', range(1, 1 + len(df)))

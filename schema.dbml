@@ -35,7 +35,6 @@ Table Dim_Geografia {
   Ciudad varchar(20) [not null]
   Departamento varchar(20)
   Pais varchar(20) [not null, default: 'Colombia']
-  Zona_Geografica varchar(20) [note: 'Ej: Norte, Sur, Centro']
   note: 'Describe ubicaciones geográficas.'
 }
 
