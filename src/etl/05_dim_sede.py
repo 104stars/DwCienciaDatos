@@ -3,7 +3,13 @@ from ..utils.db_connections import get_oltp_engine, get_dw_engine, load_df_to_dw
 
 def extract_sedes_oltp(engine_oltp):
     """
-    Extrae los datos de las sedes desde la base de datos operacional.
+    Extrae información de sedes desde la base de datos OLTP.
+    
+    Args:
+        engine_oltp (sqlalchemy.Engine): Motor de conexión al sistema OLTP
+    
+    Returns:
+        pd.DataFrame: DataFrame con los datos de sedes extraídos
     """
     query = """
     SELECT
@@ -21,14 +27,22 @@ def extract_sedes_oltp(engine_oltp):
 
 def transform_sedes(df_sedes, engine_dw):
     """
-    Transforma los datos de las sedes, buscando las claves foráneas en el DW.
+    Transforma los datos de sedes realizando lookup con las dimensiones Cliente y Geografía,
+    y agregando una clave primaria surrogate.
+    
+    Args:
+        df_sedes (pd.DataFrame): DataFrame con datos de sedes del OLTP
+        engine_dw (sqlalchemy.Engine): Motor de conexión al Data Warehouse para lookup
+    
+    Returns:
+        pd.DataFrame: DataFrame transformado con llaves foráneas y clave primaria surrogate
     """
-    # 1. Leer las dimensiones necesarias del DW para usarlas como tablas de búsqueda (lookup)
+    # Cargar dimensiones para realizar lookup de llaves foráneas
     df_dim_cliente = pd.read_sql('SELECT "Cliente_Key", "Cliente_ID_Operacional" FROM "Dim_Cliente"', engine_dw)
     df_dim_geografia = pd.read_sql('SELECT "Geografia_Key", "Ciudad_ID_Operacional" FROM "Dim_Geografia"', engine_dw)
     print("Dimensiones Cliente y Geografia cargadas desde el DW para lookup.")
 
-    # 2. Unir (merge) con la dimensión de cliente para obtener la Cliente_Key
+    # Merge con dimensión Cliente para obtener Cliente_Key
     df_merged = pd.merge(
         df_sedes,
         df_dim_cliente,
@@ -37,7 +51,7 @@ def transform_sedes(df_sedes, engine_dw):
         how='left'
     )
 
-    # 3. Unir (merge) con la dimensión de geografía para obtener la Geografia_Key
+    # Merge con dimensión Geografía para obtener Geografia_Key
     df_merged = pd.merge(
         df_merged,
         df_dim_geografia,
@@ -47,7 +61,7 @@ def transform_sedes(df_sedes, engine_dw):
     )
     print("Merge completado para buscar las llaves foráneas.")
 
-    # 4. Seleccionar y renombrar las columnas finales para la dimensión
+    # Seleccionar columnas finales para la dimensión
     df_dim_sede = df_merged[[
         'Sede_ID_Operacional',
         'Nombre_Sede',
@@ -56,10 +70,10 @@ def transform_sedes(df_sedes, engine_dw):
         'Geografia_Key'
     ]]
 
-    # Manejar el caso de que una sede no encuentre una geografía (aunque no debería pasar)
+    # Manejar valores nulos en Geografia_Key
     df_dim_sede.loc[:, 'Geografia_Key'] = df_dim_sede.loc[:, 'Geografia_Key'].fillna(-1).astype(int)
 
-    # 5. Generar la clave subrogada
+    # Agregar clave primaria surrogate
     df_dim_sede.insert(0, 'Sede_Key', range(1, 1 + len(df_dim_sede)))
     
     print("Transformación de sedes completada.")
@@ -67,16 +81,21 @@ def transform_sedes(df_sedes, engine_dw):
 
 def main():
     """
-    Orquesta el proceso de ETL para la dimensión de sedes.
+    Función principal que ejecuta el proceso ETL completo para la dimensión sede.
+    Extrae datos del OLTP, los transforma con lookups y los carga en el Data Warehouse.
     """
     print("\nIniciando ETL para Dim_Sede...")
     
     engine_oltp = get_oltp_engine()
     engine_dw = get_dw_engine()
 
+    # Extracción desde OLTP
     df_sedes_oltp = extract_sedes_oltp(engine_oltp)
+    
+    # Transformación con lookup de dimensiones
     df_dim_sede = transform_sedes(df_sedes_oltp, engine_dw)
     
+    # Carga hacia DW
     load_df_to_dw(df_dim_sede, "Dim_Sede", engine_dw, "Sede_Key")
     
     print("Proceso de Dim_Sede completado.")

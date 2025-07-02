@@ -3,7 +3,13 @@ from ..utils.db_connections import get_oltp_engine, get_dw_engine, load_df_to_dw
 
 def extract_geografia_oltp(engine_oltp):
     """
-    Extrae y une los datos de ciudades y departamentos desde la base de datos operacional.
+    Extrae información geográfica (ciudades y departamentos) desde la base de datos OLTP.
+    
+    Args:
+        engine_oltp (sqlalchemy.Engine): Motor de conexión al sistema OLTP
+    
+    Returns:
+        pd.DataFrame: DataFrame con los datos geográficos extraídos
     """
     query = """
     SELECT
@@ -21,12 +27,18 @@ def extract_geografia_oltp(engine_oltp):
 
 def transform_geografia(df):
     """
-    Aplica las transformaciones necesarias a los datos geográficos.
+    Transforma los datos geográficos agregando información de país y clave primaria surrogate.
+    
+    Args:
+        df (pd.DataFrame): DataFrame con datos geográficos del OLTP
+    
+    Returns:
+        pd.DataFrame: DataFrame transformado con país y clave primaria surrogate
     """
-    # Asignar valores por defecto según el schema.dbml
+    # Agregar información de país (por defecto Colombia)
     df['Pais'] = 'Colombia'
 
-    # Generar la clave subrogada
+    # Agregar clave primaria surrogate
     df.insert(0, 'Geografia_Key', range(1, 1 + len(df)))
     
     print("Transformación de geografía completada.")
@@ -34,11 +46,11 @@ def transform_geografia(df):
 
 def main():
     """
-    Orquesta el proceso de ETL para la dimensión de geografía.
+    Función principal que ejecuta el proceso ETL completo para la dimensión geografía.
+    Extrae datos del OLTP, los transforma y los carga en el Data Warehouse.
     """
     print("\nIniciando ETL para Dim_Geografia...")
     
-    # 1. Conectar a las bases de datos
     try:
         engine_oltp = get_oltp_engine()
         engine_dw = get_dw_engine()
@@ -47,13 +59,13 @@ def main():
         print(f"Error al conectar a las bases de datos: {e}")
         return
 
-    # 2. Extraer datos del OLTP
+    # Extracción desde OLTP
     df_geografia_oltp = extract_geografia_oltp(engine_oltp)
 
-    # 3. Transformar datos
+    # Transformación
     df_dim_geografia = transform_geografia(df_geografia_oltp)
     
-    # 4. Cargar datos en el DW
+    # Carga hacia DW
     load_df_to_dw(df_dim_geografia, "Dim_Geografia", engine_dw, "Geografia_Key")
     
     print("Proceso de Dim_Geografia completado.")

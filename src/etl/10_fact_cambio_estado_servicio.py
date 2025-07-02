@@ -3,8 +3,14 @@ from ..utils.db_connections import get_oltp_engine, get_dw_engine
 
 def extract_cambios_estado_oltp(engine_oltp):
     """
-    Extrae los eventos de cambio de estado, uniéndolos con la información
-    del servicio para obtener el contexto necesario.
+    Extrae los eventos de cambio de estado desde el OLTP uniendo con información
+    del servicio para obtener el contexto completo necesario para la tabla de hechos.
+    
+    Args:
+        engine_oltp (sqlalchemy.Engine): Motor de conexión al sistema OLTP
+    
+    Returns:
+        pd.DataFrame: DataFrame con eventos de cambio de estado y contexto del servicio
     """
     query = """
     SELECT
@@ -33,9 +39,17 @@ def extract_cambios_estado_oltp(engine_oltp):
 
 def transform_fact_table(df_oltp, engine_dw):
     """
-    Transforma los datos extraídos en la tabla de hechos, buscando todas las claves foráneas.
+    Transforma los datos extraídos realizando lookups con todas las dimensiones
+    para obtener las claves foráneas y construir la tabla de hechos final.
+    
+    Args:
+        df_oltp (pd.DataFrame): DataFrame con datos extraídos del OLTP
+        engine_dw (sqlalchemy.Engine): Motor de conexión al Data Warehouse para lookups
+    
+    Returns:
+        pd.DataFrame: DataFrame de la tabla de hechos con todas las claves foráneas
     """
-    # 1. Cargar todas las dimensiones del DW en memoria
+    # Cargar todas las dimensiones del DW para lookup
     df_dim_fecha = pd.read_sql('SELECT "Fecha_Key", "Fecha_Completa" FROM "Dim_Fecha"', engine_dw)
     df_dim_hora = pd.read_sql('SELECT "Hora_Key", "Hora_Completa" FROM "Dim_Hora"', engine_dw)
     df_dim_cliente = pd.read_sql('SELECT "Cliente_Key", "Cliente_ID_Operacional" FROM "Dim_Cliente"', engine_dw)
@@ -47,13 +61,13 @@ def transform_fact_table(df_oltp, engine_dw):
     df_dim_novedad = pd.read_sql('SELECT "Novedad_Key", "Descripcion_Novedad", "Novedad_ID_Operacional" FROM "Dim_Novedad"', engine_dw)
     print("Dimensiones cargadas desde el DW para lookup.")
 
-    # Convertir columnas de fecha/hora a tipos adecuados para el merge
+    # Convertir columnas de fecha/hora a tipos compatibles para merge
     df_oltp['fecha'] = pd.to_datetime(df_oltp['fecha']).dt.date
     df_dim_fecha['Fecha_Completa'] = pd.to_datetime(df_dim_fecha['Fecha_Completa']).dt.date
     df_oltp['hora'] = pd.to_datetime(df_oltp['hora'].astype(str), errors='coerce').dt.time
     df_dim_hora['Hora_Completa'] = pd.to_datetime(df_dim_hora['Hora_Completa'].astype(str), errors='coerce').dt.time
     
-    # 2. Realizar los merges (lookups) para encontrar las claves
+    # Realizar lookups con todas las dimensiones
     df_merged = df_oltp
     df_merged = pd.merge(df_merged, df_dim_fecha, left_on='fecha', right_on='Fecha_Completa', how='left')
     df_merged = pd.merge(df_merged, df_dim_hora, left_on='hora', right_on='Hora_Completa', how='left')
@@ -64,35 +78,35 @@ def transform_fact_table(df_oltp, engine_dw):
     df_merged = pd.merge(df_merged, df_dim_estado, left_on='estado_id', right_on='Orden_Estado', how='left')
     df_merged = pd.merge(df_merged, df_dim_urgencia, left_on='tipo_servicio_id', right_on='Urgencia_ID_Operacional', how='left')
     
-    # Renombrar claves para reflejar contexto
+    # Renombrar claves para reflejar contexto específico
     df_merged = df_merged.rename(columns={
         'Sede_Key': 'Sede_Origen_Key',
         'Geografia_Key': 'Geografia_Destino_Key'
     })
     
-    # Lookup de Novedad es especial
+    # Lookup especial para Novedad (incluye manejo de "Sin Novedad")
     df_merged = pd.merge(df_merged, df_dim_novedad.add_prefix('novedad_'), left_on='Tipo_Novedad_ID', right_on='novedad_Novedad_ID_Operacional', how='left')
     novedad_sin_key = df_dim_novedad[df_dim_novedad['Descripcion_Novedad'] == 'Sin Novedad']['Novedad_Key'].iloc[0]
     df_merged['Novedad_Key'] = df_merged['novedad_Novedad_Key'].fillna(novedad_sin_key)
 
-    # 3. Ensamblar la tabla de hechos final
+    # Seleccionar columnas finales para la tabla de hechos
     df_fact = df_merged[[
         'Fecha_Key', 'Hora_Key', 'Cliente_Key', 'Sede_Origen_Key', 'Geografia_Destino_Key',
         'Mensajero_Key', 'Estado_Servicio_Key', 'Urgencia_Servicio_Key', 'Novedad_Key',
         'Servicio_ID_Operacional', 'Direccion_Destino'
     ]]
     
-    # Añadir timestamp y contador
+    # Agregar métricas y campos calculados
     df_fact['Timestamp_Estado'] = pd.to_datetime(
         df_merged['fecha'].astype(str) + ' ' + df_merged['hora'].astype(str),
         errors='coerce'
     )
     df_fact['Contador_Estados'] = 1
     
-    # Generar la clave primaria
+    # Generar clave primaria surrogate
     df_fact.insert(0, 'Servicio_Estado_Key', range(1, 1 + len(df_fact)))
 
-    # Rellenar claves foráneas nulas (ej. mensajero no asignado) con un valor estándar (-1)
+    # Manejar valores nulos en claves foráneas opcionales
     for col in ['Mensajero_Key', 'Urgencia_Servicio_Key']:
         df_fact[col] = df_fact[col].fillna(-1)
 
@@ -101,23 +115,32 @@ def transform_fact_table(df_oltp, engine_dw):
     
 def load_fact_table_to_dw(df, engine_dw):
     """
-    Carga la tabla de hechos en el DW.
+    Carga la tabla de hechos transformada en el Data Warehouse.
+    
+    Args:
+        df (pd.DataFrame): DataFrame de la tabla de hechos a cargar
+        engine_dw (sqlalchemy.Engine): Motor de conexión al Data Warehouse
     """
     df.to_sql("Fact_Cambio_Estado_Servicio", engine_dw, if_exists='replace', index=False, chunksize=10000)
     print("Tabla de hechos cargada exitosamente en el DW.")
 
 def main():
     """
-    Orquesta el proceso de ETL para la tabla de hechos.
+    Función principal que orquesta el proceso ETL completo para la tabla de hechos.
+    Extrae eventos del OLTP, realiza transformaciones con lookups y carga al DW.
     """
     print("\nIniciando ETL para Fact_Cambio_Estado_Servicio...")
     
     engine_oltp = get_oltp_engine()
     engine_dw = get_dw_engine()
 
+    # Extracción desde OLTP
     df_oltp = extract_cambios_estado_oltp(engine_oltp)
+    
+    # Transformación con lookups dimensionales
     df_fact = transform_fact_table(df_oltp, engine_dw)
     
+    # Carga hacia DW
     load_fact_table_to_dw(df_fact, engine_dw)
     
     print("Proceso de Fact_Cambio_Estado_Servicio completado.")

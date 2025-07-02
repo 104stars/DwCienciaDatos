@@ -4,7 +4,15 @@ from datetime import date, timedelta
 
 def generar_dimension_fecha(fecha_inicio, fecha_fin):
     """
-    Genera un DataFrame con la dimensión de fecha para un rango de años.
+    Genera un DataFrame con todas las fechas entre dos fechas dadas,
+    incluyendo atributos temporales calculados.
+    
+    Args:
+        fecha_inicio (date): Fecha inicial del rango
+        fecha_fin (date): Fecha final del rango (inclusive)
+    
+    Returns:
+        pd.DataFrame: DataFrame con las fechas y sus atributos temporales
     """
     fechas = []
     
@@ -17,16 +25,15 @@ def generar_dimension_fecha(fecha_inicio, fecha_fin):
             'Ano': dia.year,
             'Trimestre': (dia.month - 1) // 3 + 1,
             'Numero_Mes': dia.month,
-            'Nombre_Mes': dia.strftime('%B'),  # Requiere locale en español
+            'Nombre_Mes': dia.strftime('%B'),
             'Numero_Dia_Mes': dia.day,
-            'Numero_Dia_Semana': dia.weekday() + 1,  # Lunes=1, Domingo=7
-            'Nombre_Dia_Semana': dia.strftime('%A'), # Requiere locale en español
-            'Es_Fin_Semana': dia.weekday() >= 5  # Sábado o Domingo
+            'Numero_Dia_Semana': dia.weekday() + 1,
+            'Nombre_Dia_Semana': dia.strftime('%A'),
+            'Es_Fin_Semana': dia.weekday() >= 5
         })
         
     df = pd.DataFrame(fechas)
     
-    # Ajustar nombres de meses y días a español manualmente si el locale no funciona
     meses_es = {
         'January': 'Enero', 'February': 'Febrero', 'March': 'Marzo', 'April': 'Abril',
         'May': 'Mayo', 'June': 'Junio', 'July': 'Julio', 'August': 'Agosto',
@@ -44,15 +51,17 @@ def generar_dimension_fecha(fecha_inicio, fecha_fin):
 
 def cargar_datos_dw(df, nombre_tabla, engine_dw, pk_column):
     """
-    Carga un DataFrame en una tabla del Data Warehouse SQLite, estableciendo la PK.
+    Carga un DataFrame en el Data Warehouse con una clave primaria específica.
+    
+    Args:
+        df (pd.DataFrame): DataFrame a cargar
+        nombre_tabla (str): Nombre de la tabla destino
+        engine_dw (sqlalchemy.Engine): Motor de conexión al DW
+        pk_column (str): Nombre de la columna clave primaria
     """
-    # En SQLite, la mejor forma de establecer una PK con to_sql es usar el índice del DataFrame.
     df_con_pk = df.set_index(pk_column, drop=True)
     
     with engine_dw.connect() as connection:
-        # Usamos if_exists='replace' para que el ETL sea idempotente durante el desarrollo.
-        # index=True para escribir el índice del DataFrame como una columna.
-        # index_label=pk_column le da el nombre correcto a esa columna.
         df_con_pk.to_sql(
             nombre_tabla, 
             connection, 
@@ -67,25 +76,21 @@ def cargar_datos_dw(df, nombre_tabla, engine_dw, pk_column):
 
 def main():
     """
-    Orquesta la generación y carga de la dimensión de fecha.
+    Función principal que ejecuta el proceso ETL completo para la dimensión fecha.
+    Genera fechas desde 2023 hasta 2025 y las carga en el Data Warehouse.
     """
-    # --- Parámetros de Conexión al DW ---
-    # Para SQLite, la conexión es la ruta a un archivo.
     db_path_dw = "DW_FastAndSafe.db"
     connection_string_dw = f"sqlite:///{db_path_dw}"
     engine_dw = create_engine(connection_string_dw)
 
-    # --- Generación de Fechas ---
     fecha_inicio = date(2023, 1, 1)
     fecha_fin = date(2025, 12, 31)
     
     print("Generando dimensión de fecha...")
     df_dim_fecha = generar_dimension_fecha(fecha_inicio, fecha_fin)
     
-    # Agregar la clave subrogada
     df_dim_fecha.insert(0, 'Fecha_Key', range(1, 1 + len(df_dim_fecha)))
     
-    # --- Carga en el DW ---
     print("Cargando dimensión de fecha en el Data Warehouse...")
     cargar_datos_dw(df_dim_fecha, "Dim_Fecha", engine_dw, "Fecha_Key")
     print("Proceso de Dim_Fecha completado.")

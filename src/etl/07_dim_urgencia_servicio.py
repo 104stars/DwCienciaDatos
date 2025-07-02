@@ -3,7 +3,13 @@ from ..utils.db_connections import get_oltp_engine, get_dw_engine, load_df_to_dw
 
 def extract_tipos_servicio_oltp(engine_oltp):
     """
-    Extrae los datos de los tipos de servicio desde la base de datos operacional.
+    Extrae información de tipos de servicio desde la base de datos OLTP.
+    
+    Args:
+        engine_oltp (sqlalchemy.Engine): Motor de conexión al sistema OLTP
+    
+    Returns:
+        pd.DataFrame: DataFrame con los datos de tipos de servicio extraídos
     """
     query = """
     SELECT
@@ -18,35 +24,47 @@ def extract_tipos_servicio_oltp(engine_oltp):
 
 def transform_urgencia(df):
     """
-    Aplica las transformaciones necesarias a los datos de urgencia.
+    Transforma los datos de urgencia de servicio aplicando categorización automática
+    basada en palabras clave en la descripción y agregando una clave primaria surrogate.
+    
+    Args:
+        df (pd.DataFrame): DataFrame con datos de tipos de servicio del OLTP
+    
+    Returns:
+        pd.DataFrame: DataFrame transformado con categorías de urgencia y clave primaria surrogate
     """
-    # Función para asignar la categoría de urgencia
     def asignar_categoria(descripcion):
+        """
+        Asigna una categoría de urgencia basada en palabras clave en la descripción.
+        
+        Args:
+            descripcion (str): Descripción del tipo de servicio
+        
+        Returns:
+            str: Categoría de urgencia ('Alta', 'Media', 'Baja')
+        """
         descripcion_lower = descripcion.lower()
         
-        # Alta prioridad
         if 'urgente' in descripcion_lower or 'urgencia' in descripcion_lower or 'vital' in descripcion_lower:
             return 'Alta'
         
-        # Media prioridad
         elif ('normal' in descripcion_lower or '2-3' in descripcion or 
               'comercial' in descripcion_lower or 'clínico' in descripcion_lower or 'clinico' in descripcion_lower):
             return 'Media'
         
-        # Baja prioridad  
         elif 'administrativo' in descripcion_lower:
             return 'Baja'
         
-        # Por defecto
         else:
             return 'Baja'
 
+    # Aplicar categorización automática
     df['Categoria_Urgencia'] = df['Descripcion_Urgencia'].apply(asignar_categoria)
     
-    # Seleccionar y reordenar las columnas finales
+    # Seleccionar columnas finales
     df = df[['Urgencia_ID_Operacional', 'Descripcion_Urgencia', 'Categoria_Urgencia']]
     
-    # Generar la clave subrogada
+    # Agregar clave primaria surrogate
     df.insert(0, 'Urgencia_Servicio_Key', range(1, 1 + len(df)))
     
     print("Transformación de urgencia de servicio completada.")
@@ -54,16 +72,21 @@ def transform_urgencia(df):
 
 def main():
     """
-    Orquesta el proceso de ETL para la dimensión de urgencia de servicio.
+    Función principal que ejecuta el proceso ETL completo para la dimensión urgencia de servicio.
+    Extrae datos del OLTP, los transforma con categorización y los carga en el Data Warehouse.
     """
     print("\nIniciando ETL para Dim_Urgencia_Servicio...")
     
     engine_oltp = get_oltp_engine()
     engine_dw = get_dw_engine()
 
+    # Extracción desde OLTP
     df_oltp = extract_tipos_servicio_oltp(engine_oltp)
+    
+    # Transformación con categorización
     df_dim = transform_urgencia(df_oltp)
     
+    # Carga hacia DW
     load_df_to_dw(df_dim, "Dim_Urgencia_Servicio", engine_dw, "Urgencia_Servicio_Key")
     
     print("Proceso de Dim_Urgencia_Servicio completado.")

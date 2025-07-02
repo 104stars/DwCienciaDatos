@@ -3,19 +3,31 @@ from sqlalchemy import create_engine, text
 from datetime import time
 
 def get_franja_horaria(hora):
-    """Devuelve la franja horaria según la hora del día."""
+    """
+    Clasifica una hora del día en franjas horarias descriptivas.
+    
+    Args:
+        hora (int): Hora del día (0-23)
+    
+    Returns:
+        str: Nombre de la franja horaria correspondiente
+    """
     if 0 <= hora <= 5:
         return 'Madrugada'
     elif 6 <= hora <= 11:
         return 'Mañana'
     elif 12 <= hora <= 17:
         return 'Tarde'
-    else: # 18 a 23
+    else:
         return 'Noche'
 
 def generar_dimension_hora():
     """
-    Genera un DataFrame con la dimensión de hora para cada minuto del día.
+    Genera un DataFrame con todas las combinaciones de hora y minuto del día,
+    incluyendo la clasificación por franja horaria.
+    
+    Returns:
+        pd.DataFrame: DataFrame con 1440 registros (24 horas x 60 minutos)
     """
     horas = []
     for h in range(24):
@@ -33,15 +45,17 @@ def generar_dimension_hora():
 
 def cargar_datos_dw(df, nombre_tabla, engine_dw, pk_column):
     """
-    Carga un DataFrame en una tabla del Data Warehouse SQLite, estableciendo la PK.
+    Carga un DataFrame en el Data Warehouse con una clave primaria específica.
+    
+    Args:
+        df (pd.DataFrame): DataFrame a cargar
+        nombre_tabla (str): Nombre de la tabla destino
+        engine_dw (sqlalchemy.Engine): Motor de conexión al DW
+        pk_column (str): Nombre de la columna clave primaria
     """
-    # En SQLite, la mejor forma de establecer una PK con to_sql es usar el índice del DataFrame.
     df_con_pk = df.set_index(pk_column, drop=True)
     
     with engine_dw.connect() as connection:
-        # Usamos if_exists='replace' para que el ETL sea idempotente durante el desarrollo.
-        # index=True para escribir el índice del DataFrame como una columna.
-        # index_label=pk_column le da el nombre correcto a esa columna.
         df_con_pk.to_sql(
             nombre_tabla, 
             connection, 
@@ -55,22 +69,19 @@ def cargar_datos_dw(df, nombre_tabla, engine_dw, pk_column):
 
 def main():
     """
-    Orquesta la generación y carga de la dimensión de hora.
+    Función principal que ejecuta el proceso ETL completo para la dimensión hora.
+    Genera todas las horas y minutos del día y las carga en el Data Warehouse.
     """
-    # --- Parámetros de Conexión al DW ---
-    # Para SQLite, la conexión es la ruta a un archivo.
     db_path_dw = "DW_FastAndSafe.db"
     connection_string_dw = f"sqlite:///{db_path_dw}"
     engine_dw = create_engine(connection_string_dw)
 
-    # --- Generación de Horas ---
     print("Generando dimensión de hora...")
     df_dim_hora = generar_dimension_hora()
     
-    # Agregar la clave subrogada (Key)
+    # Agregar clave primaria surrogate
     df_dim_hora.insert(0, 'Hora_Key', range(1, 1 + len(df_dim_hora)))
     
-    # --- Carga en el DW ---
     print("Cargando dimensión de hora en el Data Warehouse...")
     cargar_datos_dw(df_dim_hora, "Dim_Hora", engine_dw, "Hora_Key")
     print("Proceso de Dim_Hora completado.")

@@ -3,7 +3,13 @@ from ..utils.db_connections import get_oltp_engine, get_dw_engine, load_df_to_dw
 
 def extract_clientes_oltp(engine_oltp):
     """
-    Extrae los datos de los clientes desde la base de datos operacional.
+    Extrae información de clientes desde la base de datos OLTP.
+    
+    Args:
+        engine_oltp (sqlalchemy.Engine): Motor de conexión al sistema OLTP
+    
+    Returns:
+        pd.DataFrame: DataFrame con los datos de clientes extraídos
     """
     query = """
     SELECT
@@ -19,25 +25,27 @@ def extract_clientes_oltp(engine_oltp):
 
 def transform_clientes(df):
     """
-    Aplica las transformaciones necesarias a los datos de los clientes.
-    """
-    # Para este caso, la transformación principal es generar la clave subrogada.
-    # El resto de columnas ya vienen nombradas desde el SQL.
-    df.insert(0, 'Cliente_Key', range(1, 1 + len(df)))
+    Transforma los datos de clientes agregando una clave primaria surrogate.
     
-    # Asegurarnos de que no haya nulos no deseados si es necesario.
-    # df['Industria_Cliente'] = df['Industria_Cliente'].fillna('No especificada')
+    Args:
+        df (pd.DataFrame): DataFrame con datos de clientes del OLTP
+    
+    Returns:
+        pd.DataFrame: DataFrame transformado con clave primaria surrogate
+    """
+    # Agregar clave primaria surrogate
+    df.insert(0, 'Cliente_Key', range(1, 1 + len(df)))
     
     print("Transformación de clientes completada (generación de Key).")
     return df
 
 def main():
     """
-    Orquesta el proceso de ETL para la dimensión de clientes.
+    Función principal que ejecuta el proceso ETL completo para la dimensión cliente.
+    Extrae datos del OLTP, los transforma y los carga en el Data Warehouse.
     """
     print("Iniciando ETL para Dim_Cliente...")
     
-    # 1. Conectar a las bases de datos
     try:
         engine_oltp = get_oltp_engine()
         engine_dw = get_dw_engine()
@@ -46,13 +54,13 @@ def main():
         print(f"Error al conectar a las bases de datos: {e}")
         return
 
-    # 2. Extraer datos del OLTP
+    # Extracción desde OLTP
     df_clientes_oltp = extract_clientes_oltp(engine_oltp)
 
-    # 3. Transformar datos
+    # Transformación
     df_dim_cliente = transform_clientes(df_clientes_oltp)
     
-    # 4. Cargar datos en el DW
+    # Carga hacia DW
     load_df_to_dw(df_dim_cliente, "Dim_Cliente", engine_dw, "Cliente_Key")
     
     print("Proceso de Dim_Cliente completado.")

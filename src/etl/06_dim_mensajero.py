@@ -3,12 +3,17 @@ from ..utils.db_connections import get_oltp_engine, get_dw_engine, load_df_to_dw
 
 def extract_mensajeros_oltp(engine_oltp):
     """
-    Extrae datos de mensajeros, uniendo su nombre desde auth_user y
-    calculando su vehículo más frecuente desde los servicios.
+    Extrae información de mensajeros desde la base de datos OLTP, incluyendo
+    el tipo de vehículo más frecuentemente utilizado por cada mensajero.
+    
+    Args:
+        engine_oltp (sqlalchemy.Engine): Motor de conexión al sistema OLTP
+    
+    Returns:
+        pd.DataFrame: DataFrame con los datos de mensajeros extraídos
     """
     query = """
     WITH VehiculoFrecuente AS (
-        -- Paso 1: Contar los servicios por mensajero y tipo de vehículo
         SELECT
             s.mensajero_id,
             s.tipo_vehiculo_id,
@@ -20,7 +25,6 @@ def extract_mensajeros_oltp(engine_oltp):
         GROUP BY
             s.mensajero_id, s.tipo_vehiculo_id
     )
-    -- Paso 2: Unir todo
     SELECT
         m.id AS "Mensajero_ID_Operacional",
         (u.first_name || ' ' || u.last_name) AS "Nombre_Mensajero",
@@ -44,12 +48,19 @@ def extract_mensajeros_oltp(engine_oltp):
 
 def transform_mensajeros(df):
     """
-    Aplica las transformaciones necesarias a los datos de los mensajeros.
+    Transforma los datos de mensajeros manejando valores nulos en tipo de vehículo
+    y agregando una clave primaria surrogate.
+    
+    Args:
+        df (pd.DataFrame): DataFrame con datos de mensajeros del OLTP
+    
+    Returns:
+        pd.DataFrame: DataFrame transformado con clave primaria surrogate
     """
-    # Rellenar valores nulos para el tipo de vehículo si un mensajero nunca ha completado un servicio
+    # Manejar valores nulos en tipo de vehículo
     df['Tipo_Vehiculo'] = df['Tipo_Vehiculo'].fillna('No asignado')
 
-    # Generar la clave subrogada
+    # Agregar clave primaria surrogate
     df.insert(0, 'Mensajero_Key', range(1, 1 + len(df)))
     
     print("Transformación de mensajeros completada.")
@@ -57,16 +68,21 @@ def transform_mensajeros(df):
 
 def main():
     """
-    Orquesta el proceso de ETL para la dimensión de mensajeros.
+    Función principal que ejecuta el proceso ETL completo para la dimensión mensajero.
+    Extrae datos del OLTP, los transforma y los carga en el Data Warehouse.
     """
     print("\nIniciando ETL para Dim_Mensajero...")
     
     engine_oltp = get_oltp_engine()
     engine_dw = get_dw_engine()
 
+    # Extracción desde OLTP
     df_mensajeros_oltp = extract_mensajeros_oltp(engine_oltp)
+    
+    # Transformación
     df_dim_mensajero = transform_mensajeros(df_mensajeros_oltp)
     
+    # Carga hacia DW
     load_df_to_dw(df_dim_mensajero, "Dim_Mensajero", engine_dw, "Mensajero_Key")
     
     print("Proceso de Dim_Mensajero completado.")
