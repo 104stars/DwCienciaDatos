@@ -20,4 +20,5 @@ src/etl/__pycache__/09_dim_novedad.cpython-312.pyc
 src/etl/__pycache__/10_fact_cambio_estado_servicio.cpython-312.pyc
 src/utils/__pycache__/db_connections.cpython-312.pyc
 DW_FastAndSafe.db
-.gitignore
+Explicación.md
+Tests.ipynb
